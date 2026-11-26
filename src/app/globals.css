@@ -1,0 +1,231 @@
+@import "tailwindcss";
+
+/* MyFlat design system v0: tokens vindos do protótipo (prototype/index.html).
+   Cores semânticas por papel, não por tom; o modo escuro redefine os mesmos nomes. */
+:root {
+  --bg: #ffffff;
+  --soft: #f4f6f5;
+  --line: #e3e7e6;
+  --ink: #14191b;
+  --mute: #5d6a6d;
+  --side: #0f2b2f;
+  --side-ink: #dfeceb;
+  --brand: #0b6b63;
+  --brand-ink: #ffffff;
+  --warn: #ff6f59;
+  --warn-bg: #fff0ec;
+  --warn-ink: #b23a26;
+  --ok: #18794e;
+  --ch-airbnb: #e8505b;
+  --ch-booking: #2a5db0;
+  --ch-decolar: #7a3fc1;
+  --ch-whatsapp: #1e9e5a;
+  --ch-direct: #0b6b63;
+  --ch-manual: #5d6a6d;
+  --ch-other: #8a6d3b;
+  --block: #9aa5a7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1416;
+    --soft: #151d20;
+    --line: #26333a;
+    --ink: #e8eeee;
+    --mute: #93a3a6;
+    --brand: #3fb3a6;
+    --brand-ink: #0f2b2f;
+    --warn-bg: #3a1d17;
+    --warn-ink: #ff9b8a;
+    --ok: #4cc38a;
+    --block: #5b6a6d;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-soft: var(--soft);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-mute: var(--mute);
+  --color-side: var(--side);
+  --color-side-ink: var(--side-ink);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-ink: var(--warn-ink);
+  --color-ok: var(--ok);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-inter-tight), var(--font-inter), system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+}
+
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+@layer base {
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+@utility btn-primary {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+}
+@utility field {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: var(--bg);
+  font-size: 16px;
+}
+@utility chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+  background: var(--soft);
+  border: 1px solid var(--line);
+}
+
+/* Tabelas no celular: cada linha vira um cartão com rótulo à esquerda (atributo data-l). */
+@media (max-width: 600px) {
+  table.stack thead {
+    display: none;
+  }
+  table.stack tr {
+    display: grid;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.stack td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border: 0 !important;
+    padding: 3px 0 !important;
+    text-align: right;
+  }
+  table.stack td::before {
+    content: attr(data-l);
+    color: var(--mute);
+    text-align: left;
+  }
+}
+
+/* Linha do tempo: barras começam à tarde do check-in e terminam na manhã do check-out. */
+.tl {
+  --col: 42px;
+  --label: 160px;
+  position: relative;
+  min-width: calc(var(--label) + var(--n) * var(--col));
+}
+.tl-row {
+  display: grid;
+  grid-template-columns: var(--label) repeat(var(--n), var(--col));
+  position: relative;
+}
+.tl-lane {
+  height: 58px;
+  border-bottom: 1px solid var(--line);
+}
+.tl-day {
+  font-size: 12px;
+  color: var(--mute);
+  text-align: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.3;
+}
+.tl-day.today {
+  color: var(--brand);
+  font-weight: 700;
+}
+.tl-cell {
+  border-left: 1px solid var(--line);
+}
+.tl-cell.weekend,
+.tl-day.weekend {
+  background: var(--soft);
+}
+.tl-unit {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 10px;
+  font-size: 13px;
+  position: sticky;
+  left: 0;
+  background: var(--bg);
+  z-index: 3;
+}
+.tl-bar {
+  position: absolute;
+  top: 11px;
+  height: 36px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.25;
+  padding: 3px 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: left;
+  border: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+.tl-bar.hold {
+  background-image: repeating-linear-gradient(135deg, #ffffff40 0 6px, transparent 6px 12px);
+}
+.tl-bar.block {
+  background: repeating-linear-gradient(135deg, var(--block) 0 6px, color-mix(in srgb, var(--block) 70%, transparent) 6px 12px);
+}
+.tl-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--brand);
+  z-index: 4;
+  pointer-events: none;
+}

@@ -1,0 +1,55 @@
+# Dependências e builds
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Testes
+playwright-report/
+test-results/
+blob-report/
+
+# Ambiente e segredos
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Banco local
+*.db
+*.sqlite
+supabase/.temp/
+
+# Sistema e editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Claude Code (configurações locais)
+.claude/settings.local.json
+
+# Banco embutido local
+.pgdata/
+.pgtest/
+
+# Prisma Client gerado
+src/generated/
+
+# Local Netlify folder
+.netlify
+
+# vitrine pública (gerada por scripts/vitrine.py)
+.vitrine-build/

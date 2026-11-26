@@ -1,0 +1,7 @@
+# Publicação na Netlify (provisória, uso interno). O adaptador oficial do Next.js
+# é aplicado automaticamente pela Netlify.
+[build]
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "22"

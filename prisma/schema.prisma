@@ -1,0 +1,438 @@
+// MyFlat: schema da Fase 1 (fundação + motor de disponibilidade).
+// Regras que o Prisma não expressa (constraint de exclusão, CHECKs) ficam no SQL
+// das migrations. Ver docs/adr/0003-overbooking.md.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- Tenant e acesso ----------
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships        Membership[]
+  owners             Owner[]
+  properties         Property[]
+  units              Unit[]
+  channelListings    ChannelListing[]
+  guests             Guest[]
+  reservations       Reservation[]
+  occupancies        Occupancy[]
+  availabilityEvents AvailabilityEvent[]
+  tasks              Task[]
+  auditLogs          AuditLog[]
+
+  @@map("organizations")
+}
+
+model User {
+  id                 String    @id @default(uuid()) @db.Uuid
+  email              String    @unique
+  name               String
+  /// scrypt (ver src/server/auth/password.ts). Nulo = ainda sem senha definida.
+  passwordHash       String?   @map("password_hash")
+  /// Senha provisória criada por um administrador: a pessoa troca no primeiro acesso.
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  disabledAt         DateTime? @map("disabled_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  sessions    Session[]
+
+  @@map("users")
+}
+
+/// Sessão de login. O cookie guarda um token aleatório; aqui fica só o SHA-256 dele.
+model Session {
+  id             String    @id @default(uuid()) @db.Uuid
+  tokenHash      String    @unique @map("token_hash")
+  userId         String    @map("user_id") @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  expiresAt      DateTime  @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  userAgent      String?   @map("user_agent")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Tentativas de login, para limitar força bruta por e-mail.
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String
+  success   Boolean
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email, createdAt])
+  @@map("login_attempts")
+}
+
+enum Role {
+  OWNER          // dono da administradora
+  ADMIN
+  OPERATOR       // atendimento e reservas
+  CLEANING       // limpeza e manutenção
+  FINANCE
+  PROPERTY_OWNER // proprietário do imóvel: só leitura do que é dele
+}
+
+model Membership {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  role           Role
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("memberships")
+}
+
+// ---------- Portfólio ----------
+
+model Owner {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  email          String?
+  phone          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  units        Unit[]
+
+  @@unique([organizationId, id])
+  @@map("owners")
+}
+
+/// Prédio ou endereço (ex.: Edifício Atlântico). Um flat avulso é 1 Property : 1 Unit.
+model Property {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  address        String?
+  neighborhood   String?
+  city           String
+  state          String   @default("PB")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  units        Unit[]
+
+  @@unique([organizationId, id])
+  @@map("properties")
+}
+
+enum UnitStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// O flat que é reservado. A disponibilidade é sempre por Unit.
+model Unit {
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  propertyId     String     @map("property_id") @db.Uuid
+  ownerId        String?    @map("owner_id") @db.Uuid
+  code           String // número/identificação: "346"
+  name           String
+  // Dados do imóvel ficam vazios até serem informados: nada de valor padrão inventado.
+  maxGuests      Int?       @map("max_guests")
+  bedrooms       Int?
+  beds           Int?
+  bathrooms      Int?
+  checkInTime    String?    @map("check_in_time")
+  checkOutTime   String?    @map("check_out_time")
+  /// Imóvel da própria administradora (sem comissão).
+  ownedByManager Boolean    @default(false) @map("owned_by_manager")
+  /// Percentual da administração (0.15, 0.20). Nulo = ainda não definido.
+  commissionRate Decimal?   @map("commission_rate") @db.Decimal(5, 4)
+  status         UnitStatus @default(ACTIVE)
+  notes          String?
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property        Property         @relation(fields: [organizationId, propertyId], references: [organizationId, id])
+  owner           Owner?           @relation(fields: [ownerId], references: [id])
+  channelListings ChannelListing[]
+  reservations    Reservation[]
+  occupancies     Occupancy[]
+  tasks           Task[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, propertyId, code])
+  @@map("units")
+}
+
+// ---------- Canais ----------
+
+enum Channel {
+  AIRBNB
+  BOOKING
+  DECOLAR
+  WHATSAPP
+  DIRECT
+  MANUAL
+  OTHER
+}
+
+/// Unidade x canal (herdeiro do ImovelCanal do backend antigo).
+model ChannelListing {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  unitId            String    @map("unit_id") @db.Uuid
+  channel           Channel
+  externalListingId String?   @map("external_listing_id")
+  icalImportUrl     String?   @map("ical_import_url")
+  icalExportToken   String    @unique @default(uuid()) @map("ical_export_token")
+  lastSyncAt        DateTime? @map("last_sync_at")
+  lastSyncError     String?   @map("last_sync_error")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit         Unit         @relation(fields: [organizationId, unitId], references: [organizationId, id])
+  occupancies  Occupancy[]
+
+  @@unique([organizationId, id])
+  @@unique([unitId, channel])
+  @@map("channel_listings")
+}
+
+// ---------- Hóspedes e reservas ----------
+
+model Guest {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  phone          String?
+  email          String?
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reservations Reservation[]
+
+  @@unique([organizationId, id])
+  @@map("guests")
+}
+
+enum ReservationStatus {
+  INQUIRY          // consulta
+  AWAITING_CONFIRM // aguardando confirmação
+  HOLD             // pré-reserva (ocupa até hold_expires_at)
+  CONFIRMED
+  CHECKED_IN
+  IN_STAY
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Reservation {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  unitId         String            @map("unit_id") @db.Uuid
+  guestId        String?           @map("guest_id") @db.Uuid
+  code           String
+  channel        Channel
+  externalRef    String?           @map("external_ref")
+  status         ReservationStatus
+  checkIn        DateTime          @map("check_in") @db.Date
+  checkOut       DateTime          @map("check_out") @db.Date
+  guestCount     Int               @default(1) @map("guest_count")
+  totalAmount    Decimal           @default(0) @map("total_amount") @db.Decimal(12, 2)
+  channelFee     Decimal           @default(0) @map("channel_fee") @db.Decimal(12, 2)
+  netAmount      Decimal           @default(0) @map("net_amount") @db.Decimal(12, 2)
+  holdExpiresAt  DateTime?         @map("hold_expires_at")
+  notes          String?
+  createdById    String?           @map("created_by_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit         Unit         @relation(fields: [organizationId, unitId], references: [organizationId, id])
+  guest        Guest?       @relation(fields: [guestId], references: [id])
+  occupancy    Occupancy?
+  tasks        Task[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, code])
+  @@index([organizationId, unitId, checkIn])
+  @@map("reservations")
+}
+
+// ---------- Disponibilidade ----------
+
+enum OccupancyKind {
+  RESERVATION
+  BLOCK
+  EXTERNAL // evento importado por iCal sem reserva interna
+}
+
+enum BlockReason {
+  MAINTENANCE
+  OWNER_USE
+  CLEANING
+  ADMINISTRATIVE
+  OTHER
+}
+
+/// Tudo que ocupa a agenda de um flat, no intervalo [check_in, check_out).
+/// A constraint occupancies_no_overlap (SQL da migration) impede sobreposição
+/// entre ocupações ativas da mesma unidade.
+model Occupancy {
+  id               String        @id @default(uuid()) @db.Uuid
+  organizationId   String        @map("organization_id") @db.Uuid
+  unitId           String        @map("unit_id") @db.Uuid
+  kind             OccupancyKind
+  checkIn          DateTime      @map("check_in") @db.Date
+  checkOut         DateTime      @map("check_out") @db.Date
+  isActive         Boolean       @default(true) @map("is_active")
+  source           Channel       @default(MANUAL)
+  reservationId    String?       @unique @map("reservation_id") @db.Uuid
+  blockReason      BlockReason?  @map("block_reason")
+  note             String?
+  channelListingId String?       @map("channel_listing_id") @db.Uuid
+  externalUid      String?       @map("external_uid")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit           Unit            @relation(fields: [organizationId, unitId], references: [organizationId, id])
+  reservation    Reservation?    @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  channelListing ChannelListing? @relation(fields: [channelListingId], references: [id])
+
+  @@unique([channelListingId, externalUid])
+  @@index([organizationId, unitId, checkIn])
+  @@map("occupancies")
+}
+
+/// Histórico de toda mudança de disponibilidade.
+model AvailabilityEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  unitId         String   @map("unit_id") @db.Uuid
+  occupancyId    String?  @map("occupancy_id") @db.Uuid
+  action         String // created, released, dates_changed, reactivated
+  before         Json?
+  after          Json?
+  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  source         String // ui, ical, ai, job
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, unitId, createdAt])
+  @@map("availability_events")
+}
+
+// ---------- Operação ----------
+
+enum TaskCategory {
+  CLEANING
+  MAINTENANCE
+  PURCHASE
+  RESTOCK
+  CHECK_IN
+  CHECK_OUT
+  DOCUMENTS
+  FINANCE
+  GUEST_SERVICE
+  GUEST_REQUEST
+  OTHER
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  INBOX
+  TODO
+  IN_PROGRESS
+  WAITING
+  DONE
+  CANCELLED
+}
+
+enum TaskSource {
+  MANUAL
+  QUICK_CAPTURE
+  AUTOMATION
+  AI
+  WHATSAPP
+}
+
+model Task {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  unitId         String?      @map("unit_id") @db.Uuid
+  reservationId  String?      @map("reservation_id") @db.Uuid
+  title          String
+  description    String?
+  category       TaskCategory
+  priority       TaskPriority @default(MEDIUM)
+  status         TaskStatus   @default(TODO)
+  dueDate        DateTime?    @map("due_date") @db.Date
+  assigneeUserId String?      @map("assignee_user_id") @db.Uuid
+  source         TaskSource   @default(MANUAL)
+  /// Texto original de onde a pendência saiu (captura/IA), para conferência.
+  sourceText     String?      @map("source_text")
+  /// Por que o prazo foi definido (ex.: "próximo check-in em 02/12").
+  dueReason      String?      @map("due_reason")
+  /// Motivo de revisão apontado pela IA (ambiguidade, falta de dado).
+  reviewReason   String?      @map("review_reason")
+  createdById    String?      @map("created_by_id") @db.Uuid
+  completedAt    DateTime?    @map("completed_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit         Unit?        @relation(fields: [unitId], references: [id])
+  reservation  Reservation? @relation(fields: [reservationId], references: [id])
+
+  @@index([organizationId, status, dueDate])
+  @@map("tasks")
+}
+
+// ---------- Plataforma ----------
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  entity         String
+  entityId       String   @map("entity_id")
+  action         String
+  data           Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, entity, entityId])
+  @@map("audit_logs")
+}
